@@ -4,10 +4,12 @@
  * @license      {@link https://github.com/photonstorm/phaser/blob/master/license.txt|MIT License}
  */
 
+var Clamp = require('../../math/Clamp');
 var Class = require('../../utils/Class');
 var DegToRad = require('../../math/DegToRad');
-var EventEmitter = require('eventemitter3');
 var Effects = require('./effects');
+var EventEmitter = require('eventemitter3');
+var Linear = require('../../math/Linear');
 var Rectangle = require('../../geom/rectangle/Rectangle');
 var TransformMatrix = require('../../gameobjects/components/TransformMatrix');
 var ValueToColor = require('../../display/color/ValueToColor');
@@ -299,6 +301,35 @@ var Camera = new Class({
          * @since 3.0.0
          */
         this.culledObjects = [];
+
+        /**
+         * The linear interpolation value to use when following a target.
+         *
+         * Can also be set via `setLerp` or as part of the `startFollow` call.
+         *
+         * The default values of 1 means the camera will instantly snap to the target coordinates.
+         * A lower value, such as 0.1 means the camera will more slowly track the target, giving
+         * a smooth transition. You can set the horizontal and vertical values independently, and also
+         * adjust this value in real-time during your game.
+         *
+         * Be sure to keep the value between 0 and 1. A value of zero will disable tracking on that axis.
+         *
+         * @name Phaser.Cameras.Scene2D.Camera#lerp
+         * @type {Phaser.Math.Vector2}
+         * @since 3.9.0
+         */
+        this.lerp = new Vector2(1, 1);
+
+        /**
+         * The values stored in this property are subtracted from the Camera targets position, allowing you to
+         * offset the camera from the actual target x/y coordinates by this amount.
+         * Can also be set via `setFollowOffset` or as part of the `startFollow` call.
+         *
+         * @name Phaser.Cameras.Scene2D.Camera#followOffset
+         * @type {Phaser.Math.Vector2}
+         * @since 3.9.0
+         */
+        this.followOffset = new Vector2();
 
         /**
          * Internal follow target reference.
@@ -683,13 +714,10 @@ var Camera = new Class({
         var originY = height / 2;
         var follow = this._follow;
 
-        if (follow !== null)
+        if (follow)
         {
-            originX = follow.x;
-            originY = follow.y;
-
-            this.scrollX = (originX - width * 0.5) / zoom;
-            this.scrollY = (originY - height * 0.5) / zoom;
+            this.scrollX = Linear(this.scrollX, (follow.x - this.followOffset.x) - originX, this.lerp.x) / zoom;
+            this.scrollY = Linear(this.scrollY, (follow.y - this.followOffset.y) - originY, this.lerp.y) / zoom;
         }
 
         if (this.useBounds)
@@ -768,6 +796,56 @@ var Camera = new Class({
         if (value === undefined) { value = 0; }
 
         this.rotation = DegToRad(value);
+
+        return this;
+    },
+
+    /**
+     * Sets the linear interpolation value to use when following a target.
+     *
+     * The default values of 1 means the camera will instantly snap to the target coordinates.
+     * A lower value, such as 0.1 means the camera will more slowly track the target, giving
+     * a smooth transition. You can set the horizontal and vertical values independently, and also
+     * adjust this value in real-time during your game.
+     *
+     * Be sure to keep the value between 0 and 1. A value of zero will disable tracking on that axis.
+     *
+     * @method Phaser.Cameras.Scene2D.Camera#setLerp
+     * @since 3.9.0
+     *
+     * @param {number} [x=1] - The amount added to the horizontal linear interpolation of the follow target.
+     * @param {number} [y=1] - The amount added to the vertical linear interpolation of the follow target.
+     *
+     * @return {this} This Camera instance.
+     */
+    setLerp: function (x, y)
+    {
+        if (x === undefined) { x = 1; }
+        if (y === undefined) { y = x; }
+
+        this.lerp.set(x, y);
+
+        return this;
+    },
+
+    /**
+     * Sets the horizontal and vertical offset of the camera from its follow target.
+     * The values are subtracted from the targets position during the Cameras update step.
+     *
+     * @method Phaser.Cameras.Scene2D.Camera#setFollowOffset
+     * @since 3.9.0
+     *
+     * @param {number} [x=0] - The horizontal offset from the camera follow target.x position.
+     * @param {number} [y=0] - The vertical offset from the camera follow target.y position.
+     *
+     * @return {this} This Camera instance.
+     */
+    setFollowOffset: function (x, y)
+    {
+        if (x === undefined) { x = 0; }
+        if (y === undefined) { y = 0; }
+
+        this.followOffset.set(x, y);
 
         return this;
     },
@@ -1035,21 +1113,52 @@ var Camera = new Class({
      * When enabled the Camera will automatically adjust its scroll position to keep the target Game Object
      * in its center.
      *
+     * You can set the linear interpolation value used in the follow code.
+     * Use low lerp values (such as 0.1) to automatically smooth the camera motion.
+     *
+     * If you find you're getting a slight "jitter" effect when following an object it's probably to do with sub-pixel
+     * rendering of the targets position. This can be rounded by setting the `roundPixels` argument to `true` to
+     * force full pixel rounding rendering. Note that this can still be broken if you have specified a non-integer zoom
+     * value on the camera. So be sure to keep the camera zoom to integers.
+     *
      * @method Phaser.Cameras.Scene2D.Camera#startFollow
      * @since 3.0.0
      *
      * @param {(Phaser.GameObjects.GameObject|object)} target - The target for the Camera to follow.
-     * @param {boolean} [roundPx=false] - Round the movement pixels to whole integers?
+     * @param {boolean} [roundPixels=false] - Round the camera position to whole integers to avoid sub-pixel rendering?
+     * @param {float} [lerpX=1] - A value between 0 and 1. This value specifies the amount of linear interpolation to use when horizontally tracking the target. The closer the value to 1, the faster the camera will track.
+     * @param {float} [lerpY=1] - A value between 0 and 1. This value specifies the amount of linear interpolation to use when vertically tracking the target. The closer the value to 1, the faster the camera will track.
+     * @param {number} [offsetX=0] - The horizontal offset from the camera follow target.x position.
+     * @param {number} [offsetY=0] - The vertical offset from the camera follow target.y position.
      *
-     * @return {Phaser.Cameras.Scene2D.Camera} This Camera instance.
+     * @return {this} This Camera instance.
      */
-    startFollow: function (target, roundPx)
+    startFollow: function (target, roundPixels, lerpX, lerpY, offsetX, offsetY)
     {
-        if (roundPx === undefined) { roundPx = false; }
+        if (roundPixels === undefined) { roundPixels = false; }
+        if (lerpX === undefined) { lerpX = 1; }
+        if (lerpY === undefined) { lerpY = lerpX; }
+        if (offsetX === undefined) { offsetX = 0; }
+        if (offsetY === undefined) { offsetY = offsetX; }
 
         this._follow = target;
 
-        this.roundPixels = roundPx;
+        this.roundPixels = roundPixels;
+
+        lerpX = Clamp(lerpX, 0, 1);
+        lerpY = Clamp(lerpY, 0, 1);
+
+        this.lerp.set(lerpX, lerpY);
+
+        this.followOffset.set(offsetX, offsetY);
+
+        //  Move the camera there immediately, to avoid a large lerp during preUpdate
+        var zoom = this.zoom;
+        var originX = this.width / 2;
+        var originY = this.height / 2;
+
+        this.scrollX = (target.x - offsetX - originX) / zoom;
+        this.scrollY = (target.y - offsetY - originY) / zoom;
 
         return this;
     },
@@ -1170,11 +1279,11 @@ var Camera = new Class({
 
         this.culledObjects = [];
 
-        this.target = undefined;
+        this._follow = null;
 
-        this._bounds = undefined;
+        this._bounds = null;
 
-        this.scene = undefined;
+        this.scene = null;
     }
 
 });
